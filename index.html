@@ -5,117 +5,212 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jacuzzi Control</title>
     <style>
+        :root {
+            /* Hot Theme */
+            --bg-color-hot: #1a1616;
+            --gradient-start-hot: #2a1f1f;
+            --gradient-end-hot: #382626;
+            --accent-color-hot: #FF6B4A;
+            --accent-glow-hot: rgba(255, 107, 74, 0.3);
+            --btn-bg-hot: rgba(255, 107, 74, 0.1);
+            --btn-bg-hover-hot: rgba(255, 107, 74, 0.2);
+
+            /* Cold Theme */
+            --bg-color-cold: #1a1a1a;
+            --gradient-start-cold: #222;
+            --gradient-end-cold: #333;
+            --accent-color-cold: #4FACFE;
+            --accent-glow-cold: rgba(79, 172, 254, 0.3);
+            --btn-bg-cold: rgba(79, 172, 254, 0.1);
+            --btn-bg-hover-cold: rgba(79, 172, 254, 0.2);
+
+            /* Default to hot theme */
+            --bg-color: var(--bg-color-hot);
+            --gradient-start: var(--gradient-start-hot);
+            --gradient-end: var(--gradient-end-hot);
+            --accent-color: var(--accent-color-hot);
+            --accent-glow: var(--accent-glow-hot);
+            --btn-bg: var(--btn-bg-hot);
+            --btn-bg-hover: var(--btn-bg-hover-hot);
+        }
+
         body {
-            font-family: 'Arial', sans-serif;
+            font-family: 'SF Pro Display', 'Arial', sans-serif;
             margin: 0;
             padding: 20px;
-            background-color: #f0f2f5;
+            background-color: var(--bg-color);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 2s;
         }
 
         .container {
-            max-width: 400px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 20px;
+            width: 320px;
+            aspect-ratio: 1;
+            background: linear-gradient(145deg, var(--gradient-start), var(--gradient-end));
+            border-radius: 50%;
             padding: 20px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3),
+                        inset 0 2px 5px rgba(255,255,255,0.1);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: background 2s;
         }
 
         .temperature-display {
             text-align: center;
-            padding: 30px 0;
+            position: relative;
+            width: 100%;
         }
 
         .current-temp {
-            font-size: 4em;
-            font-weight: bold;
-            color: #2196F3;
+            font-size: 5em;
+            font-weight: 300;
+            color: var(--accent-color);
+            margin: 0;
+            line-height: 1;
+            text-shadow: 0 0 20px var(--accent-glow);
+            transition: color 2s, text-shadow 2s;
         }
 
         .target-temp {
-            font-size: 1.5em;
-            color: #666;
-            margin: 10px 0;
+            font-size: 1.2em;
+            color: #888;
+            margin: 5px 0;
         }
 
         .controls {
-            display: flex;
-            justify-content: center;
-            gap: 20px;
-            margin: 20px 0;
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
         }
 
         .temp-btn {
-            width: 50px;
-            height: 50px;
-            border-radius: 25px;
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
             border: none;
-            background: #2196F3;
-            color: white;
-            font-size: 24px;
+            background: var(--btn-bg);
+            color: var(--accent-color);
+            font-size: 28px;
             cursor: pointer;
-            transition: background 0.3s;
+            transition: all 0.3s;
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            margin-top: 70px;
+        }
+
+        #increase {
+            right: 30px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        #decrease {
+            left: 30px;
+            top: 50%;
+            transform: translateY(-50%);
         }
 
         .temp-btn:hover {
-            background: #1976D2;
+            background: var(--btn-bg-hover);
+            transform: translateY(-50%) scale(1.1);
         }
 
         .status {
+            position: absolute;
+            bottom: 40px;
             text-align: center;
-            color: #666;
-            margin-top: 20px;
+            color: #888;
+            font-size: 0.9em;
+            width: 100%;
         }
 
         .status-indicator {
-            width: 10px;
-            height: 10px;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
             display: inline-block;
             margin-right: 5px;
         }
 
-        .connected {
-            background: #4CAF50;
-        }
-
-        .disconnected {
-            background: #F44336;
-        }
-
-        .connecting {
-            background: #FFC107;
-        }
+        .connected { background: #4CAF50; box-shadow: 0 0 10px #4CAF50; }
+        .disconnected { background: #F44336; box-shadow: 0 0 10px #F44336; }
+        .connecting { background: #FFC107; box-shadow: 0 0 10px #FFC107; }
 
         .error-message {
-            display: none;
-            background: #ffebee;
-            color: #c62828;
-            padding: 10px;
-            border-radius: 10px;
-            margin: 10px 0;
-            text-align: center;
-            opacity: 1;
-            animation: fadeIn 0.3s ease-in;
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(244, 67, 54, 0.95);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 25px;
+            font-size: 0.9em;
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            z-index: 100;
+            white-space: nowrap;
+            box-shadow: 0 4px 15px rgba(244, 67, 54, 0.3);
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+            margin-top: 42px;
         }
 
-        .fade-out {
-            animation: fadeOut 0.3s ease-out forwards;
+        .error-message.visible {
+            opacity: 1;
+            visibility: visible;
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
+            from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+            to { opacity: 1; transform: translateX(-50%) translateY(0); }
         }
 
         @keyframes fadeOut {
-            from { opacity: 1; }
-            to { opacity: 0; }
+            from { opacity: 1; transform: translateX(-50%) translateY(0); }
+            to { opacity: 0; transform: translateX(-50%) translateY(-10px); }
         }
+
+        .error-message.fade-in {
+            animation: fadeIn 0.3s ease forwards;
+        }
+
+        .error-message.fade-out {
+            animation: fadeOut 0.3s ease forwards;
+        }
+
+        .sunset-info {
+            position: absolute;
+            top: 20px;
+            text-align: center;
+            color: #888;
+            font-size: 0.9em;
+            width: 100%;
+        }
+
+        /* .sunset-info span {
+            color: var(--accent-color);
+            text-shadow: 0 0 10px var(--accent-glow);
+        } */
     </style>
 </head>
 <body>
     <div class="container">
+        <div class="sunset-info">
+            Sunset: <span id="sunsetTime">--:--</span>
+        </div>
         <div class="temperature-display">
             <div class="current-temp">--°C</div>
             <div class="target-temp">Target: --°C</div>
@@ -210,9 +305,33 @@
         showError('Error from MQTT broker: ' + error.message);
     });
 
+    function updateTheme(temperature) {
+        const COLD_THRESHOLD = 37; // Switch to cold theme below this temperature
+        const root = document.documentElement;
+        
+        if (temperature === "--" || temperature >= COLD_THRESHOLD) {
+            root.style.setProperty('--bg-color', 'var(--bg-color-hot)');
+            root.style.setProperty('--gradient-start', 'var(--gradient-start-hot)');
+            root.style.setProperty('--gradient-end', 'var(--gradient-end-hot)');
+            root.style.setProperty('--accent-color', 'var(--accent-color-hot)');
+            root.style.setProperty('--accent-glow', 'var(--accent-glow-hot)');
+            root.style.setProperty('--btn-bg', 'var(--btn-bg-hot)');
+            root.style.setProperty('--btn-bg-hover', 'var(--btn-bg-hover-hot)');
+        } else {
+            root.style.setProperty('--bg-color', 'var(--bg-color-cold)');
+            root.style.setProperty('--gradient-start', 'var(--gradient-start-cold)');
+            root.style.setProperty('--gradient-end', 'var(--gradient-end-cold)');
+            root.style.setProperty('--accent-color', 'var(--accent-color-cold)');
+            root.style.setProperty('--accent-glow', 'var(--accent-glow-cold)');
+            root.style.setProperty('--btn-bg', 'var(--btn-bg-cold)');
+            root.style.setProperty('--btn-bg-hover', 'var(--btn-bg-hover-cold)');
+        }
+    }
+
     function updateUI() {
         document.querySelector('.current-temp').textContent = `${currentTemp}°C`;
         document.querySelector('.target-temp').textContent = `Target: ${targetTemp}°C`;
+        updateTheme(currentTemp);
     }
 
     function checkConnectionStatus() {
@@ -220,30 +339,34 @@
         if (timeSinceLastUpdate > 5000 && lastRecievedTargetTemp !== "--") {
             document.getElementById('connectionStatus').classList.replace('connected', 'disconnected');
             document.getElementById('statusText').textContent = 'Not receiving updates';
+            showError('Stopped receiving updates from ESP');
         }
     }
 
     function showError(message, duration = 3000) {
         const errorElement = document.getElementById('errorMessage');
+        
+        // Clear any existing timeouts and animations
         if (errorMessageTimeout) {
             clearTimeout(errorMessageTimeout);
-            errorElement.classList.remove('fade-out');
         }
-        errorElement.style.display = 'block';
-        errorElement.textContent = message;
         
-        errorMessageTimeout = setTimeout(() => {
-            errorElement.classList.add('fade-out');
-        }, duration);
+        errorElement.className = 'error-message';
+        
+        // Start new animation sequence
+        setTimeout(() => {
+            errorElement.classList.add('visible', 'fade-in');
+            errorElement.textContent = message;
+        }, 10);
 
-        errorElement.addEventListener('animationend', function handler(e) {
-            if (e.animationName === 'fadeOut') {
-                errorElement.style.display = 'none';
-                errorElement.classList.remove('fade-out');
-                errorElement.removeEventListener('animationend', handler);
-                errorMessageTimeout = null;
-            }
-        });
+        errorMessageTimeout = setTimeout(() => {
+            errorElement.classList.remove('fade-in');
+            errorElement.classList.add('fade-out');
+            
+            setTimeout(() => {
+                errorElement.classList.remove('visible', 'fade-out');
+            }, 300);
+        }, duration);
     }
 
     function setConnected() {
@@ -280,7 +403,7 @@
             switch(topic) {
                 case TOPICS.temperature:
                     setConnected();
-                    currentTemp = decryptedMessage.value;
+                    currentTemp = Math.round(decryptedMessage.value * 10) / 10;
                     lastRecievedTargetTemp = decryptedMessage.target;
                     if (targetTemp === "--") {
                         targetTemp = decryptedMessage.target;
@@ -344,6 +467,28 @@
     document.getElementById('decrease').onclick = () => {
         updateTargetTemperature(Math.max(targetTemp - 0.5, 35));
     };
+
+    // Add sunset functionality
+    async function fetchSunsetTime() {
+        try {
+            const response = await fetch('https://api.sunrise-sunset.org/json?lat=60.390361&lng=5.328442&formatted=0');
+            const data = await response.json();
+            const sunsetUTC = new Date(data.results.sunset);
+            const sunset = sunsetUTC.toLocaleTimeString('no-NO', {
+                hour: '2-digit',
+                minute: '2-digit',
+                timeZone: 'Europe/Oslo'
+            });
+            document.getElementById('sunsetTime').textContent = sunset;
+        } catch (error) {
+            console.error('Error fetching sunset time:', error);
+            document.getElementById('sunsetTime').textContent = '--:--';
+        }
+    }
+
+    // Fetch sunset time initially and update every hour
+    fetchSunsetTime();
+    setInterval(fetchSunsetTime, 3600000);
 
     updateUI();
 </script>
