@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+</head>
+<body>
+    <div id="messages"></div>
+    <form id="msgForm">
+        <input type="text" id="messageInput" placeholder="Type a message">
+        <button type="submit">Send</button>
+    </form>
+</body>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script>
+    const client = mqtt.connect('wss://test.mosquitto.org:8081', {
+        protocol: 'wss',
+        protocolVersion: 4,
+        clean: true,
+        reconnectPeriod: 1000,
+        connectTimeout: 30 * 1000
+    });
+
+    function displayMessage(message) {
+        const messagesDiv = document.getElementById('messages');
+        messagesDiv.innerHTML += `<div>${message}</div>`;
+    }
+
+    client.on("connect", () => {
+        client.subscribe("jacuzzicontrolliveupdates", (err) => {
+            if (!err) {
+                client.publish("test", "Hello mqtt");
+                displayMessage("Connected to MQTT broker");
+            }
+        });
+    });
+
+    client.on("message", (topic, message) => {
+        displayMessage("Received: " + message.toString());
+    });
+
+    document.getElementById('msgForm').onsubmit = (e) => {
+        e.preventDefault();
+        const message = document.getElementById('messageInput').value;
+        client.publish("jacuzzicontrolliveupdates", message);
+        document.getElementById('messageInput').value = '';
+    };
+</script>
+</html>
