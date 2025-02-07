@@ -4,7 +4,6 @@ import time
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 import base64
-import random
 import os
 
 CONFIG = {
@@ -21,6 +20,40 @@ TOPICS = {
     'target_temp': CONFIG['topic_prefix'] + 'target_temperature',
     'initial_request': CONFIG['topic_prefix'] + 'initial_request'
 }
+
+MIN_TEMP = 35
+MAX_TEMP = 40
+
+HEATER_PIN = 0  # replace with actual GPIO pin number
+TARGET_TEMP_ADDR = 0
+
+flash_memory = { # this is only for the simulation script. In actual implementation, use flash memory on the ESP
+    0: 37.0
+} 
+
+def write_to_flash(address, value):
+    # replace with actual code to write the target temperature to flash
+    flash_memory[address] = value
+
+def read_from_flash(address):
+    # replace with actual code to read the last target temperature from flash
+    return flash_memory.get(address)
+
+def read_temperature():
+    # replace with actual reading from sensors on the ESP
+    return current_temp
+
+last_target_update_timestamp = 0
+heater_enabled = False
+heater_min_switch_time = 0
+heater_switch_time = 0
+
+current_temp = 37.0 # for simulation, because we don't have actual temperature sensors
+current_temp = read_temperature()
+target_temp = read_from_flash(TARGET_TEMP_ADDR)
+if target_temp > MAX_TEMP or target_temp < MIN_TEMP:
+    print("Invalid target temperature in flash. Setting to minimum temperature")
+    target_temp = MIN_TEMP
 
 def encrypt_message(message):
     """Encrypt message using AES"""
@@ -72,33 +105,7 @@ def decrypt_message(encrypted_data):
         return None
 
 def on_publish(client, userdata, mid):
-    """Callback when a message is published"""
-    print(f"Message {mid} published successfully")
-
-class JacuzziSimulator:
-    def __init__(self):
-        self.current_temp = 38.0
-        self.target_temp = 38.0
-        self.heating_rate = 0.1  # °C per second
-        self.cooling_rate = 0.05  # °C per second
-        self.last_update = time.time()
-        self.last_target_update_timestamp = 0 
-
-    def update_temperature(self):
-        now = time.time()
-        elapsed = now - self.last_update
-        self.last_update = now
-
-        noise = random.uniform(-0.1, 0.1)
-
-        if self.current_temp < self.target_temp:
-            change = self.heating_rate * elapsed
-            self.current_temp = min(self.target_temp, self.current_temp + change + noise)
-        else:
-            change = self.cooling_rate * elapsed
-            self.current_temp = max(self.target_temp, self.current_temp - change + noise)
-
-        return round(self.current_temp, 1)
+    print(f"Message published successfully")
 
 def on_connect(client, userdata, flags, rc):
     print(f"Connected with result code {rc}")
@@ -106,18 +113,16 @@ def on_connect(client, userdata, flags, rc):
     client.subscribe(TOPICS['initial_request'])
 
 def on_message(client, userdata, msg):
+    global last_target_update_timestamp, target_temp
     try:
-        simulator = userdata['simulator']
         decrypted = decrypt_message(msg.payload)
         print("Received message: ", decrypted)
         
         if msg.topic == TOPICS['initial_request']:
-            current_temp = simulator.update_temperature()
             message = {
                 'deviceId': CONFIG['device_id'],
                 'value': current_temp,
-                'target': simulator.target_temp,
-                'timestamp': int(time.time() * 1000)
+                'target': target_temp,
             }
             encrypted_message = encrypt_message(message)
             client.publish(TOPICS['temperature'], encrypted_message)
@@ -125,61 +130,48 @@ def on_message(client, userdata, msg):
             
         if msg.topic == TOPICS['target_temp']:
             message_timestamp = decrypted.get('timestamp', 0)
-            if message_timestamp < simulator.last_target_update_timestamp:
+            if message_timestamp < last_target_update_timestamp:
                 print(f"Ignoring outdated target temperature request (timestamp: {message_timestamp})")
                 return
 
             new_target = float(decrypted['value'])
-            if 35 <= new_target <= 40:
-                simulator.target_temp = new_target
-                simulator.last_target_update_timestamp = message_timestamp
+            if MIN_TEMP <= new_target <= MAX_TEMP:
+                write_to_flash(TARGET_TEMP_ADDR, target_temp)
+                target_temp = new_target
+                last_target_update_timestamp = message_timestamp
                 status_message = {
                     'deviceId': CONFIG['device_id'],
                     'type': 'target_temp_update',
                     'status': 'ok',
                     'message': new_target,
-                    'timestamp': int(time.time() * 1000)
                 }
             else:
                 status_message = {
                     'deviceId': CONFIG['device_id'],
                     'type': 'target_temp_update',
                     'status': 'error',
-                    'message': 'Temperature out of valid range (35-40°C)',
-                    'timestamp': int(time.time() * 1000)
+                    'message': f'Temperature out of valid range ({MIN_TEMP}-{MAX_TEMP}°C)',
                 }
             
             client.publish(TOPICS['status'], encrypt_message(status_message))
     except Exception as e:
         print(f"Error processing message: {e}")
 
-def simulate_temperature(client, simulator):
-    """Simulate temperature fluctuations"""
-    while True:
-        current_temp = simulator.update_temperature()
-        
-        message = {
-            'deviceId': CONFIG['device_id'],
-            'value': current_temp,
-            'target': simulator.target_temp,
-            'timestamp': int(time.time() * 1000)
-        }
-        
-        encrypted_message = encrypt_message(message)
-        client.publish(TOPICS['temperature'], encrypted_message)
-        
-        status_message = {
-            'deviceId': CONFIG['device_id'],
-            'status': 'heating' if current_temp < simulator.target_temp else 'idle',
-            'timestamp': int(time.time() * 1000)
-        }
-        encrypted_status = encrypt_message(status_message)
-        client.publish(TOPICS['status'], encrypted_status)
-        
-        print(f"Current: {current_temp}°C, Target: {simulator.target_temp}°C")
-        time.sleep(2)
+def enable_heater():
+    global heater_enabled, heater_switch_time
+    print("Turning on heater")
+    heater_enabled = True
+    heater_switch_time = heater_min_switch_time
+    # add actual code to turn on the heater on HEATER_PIN
 
-client = mqtt.Client(userdata={'simulator': JacuzziSimulator()})
+def disable_heater():
+    global heater_enabled, heater_switch_time
+    print("Turning off heater")
+    heater_enabled = False
+    heater_switch_time = heater_min_switch_time
+    # add actual code to turn off the heater on HEATER_PIN
+
+client = mqtt.Client()
 client.on_connect = on_connect
 client.on_message = on_message
 client.on_publish = on_publish
@@ -189,9 +181,32 @@ client.connect(CONFIG['broker'], CONFIG['port'], 60)
 
 client.loop_start()
 
-try:
-    simulate_temperature(client, client._userdata['simulator'])
-except KeyboardInterrupt:
-    print("\nStopping simulation...")
-    client.loop_stop()
-    client.disconnect()
+while True:
+    current_temp = read_temperature()
+    if current_temp <= target_temp and not heater_enabled and heater_switch_time <= 0 and target_temp != 0:
+        enable_heater()
+    elif current_temp > target_temp and heater_enabled and heater_switch_time <= 0:
+        disable_heater()
+    elif heater_switch_time > 0:
+        heater_switch_time -= 1
+        print(f"Heater: {'on' if heater_enabled else 'off'}. Waiting for heater to switch ({heater_switch_time}s)")
+
+    message = {
+        'deviceId': CONFIG['device_id'],
+        'value': current_temp,
+        'target': target_temp,
+        'isHeating': heater_enabled,
+    }
+    
+    encrypted_message = encrypt_message(message)
+    client.publish(TOPICS['temperature'], encrypted_message)
+    
+    print(f"Current: {current_temp}°C, Target: {target_temp}°C")
+    time.sleep(1)
+
+    # simulate temperature changes. not needed in actual implementation
+    change_factor = 0.1
+    if heater_enabled:
+        current_temp += change_factor
+    else:
+        current_temp -= change_factor
