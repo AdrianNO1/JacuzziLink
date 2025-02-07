@@ -6,7 +6,7 @@
     <title>Jacuzzi Control</title>
     <style>
         :root {
-            /* Hot Theme */
+            /* Hot Theme (40°C) */
             --bg-color-hot: #1a1616;
             --gradient-start-hot: #2a1f1f;
             --gradient-end-hot: #382626;
@@ -15,7 +15,7 @@
             --btn-bg-hot: rgba(255, 107, 74, 0.1);
             --btn-bg-hover-hot: rgba(255, 107, 74, 0.2);
 
-            /* Cold Theme */
+            /* Cold Theme (35°C) */
             --bg-color-cold: #1a1a1a;
             --gradient-start-cold: #222;
             --gradient-end-cold: #333;
@@ -24,26 +24,34 @@
             --btn-bg-cold: rgba(79, 172, 254, 0.1);
             --btn-bg-hover-cold: rgba(79, 172, 254, 0.2);
 
-            /* Default to hot theme */
-            --bg-color: var(--bg-color-hot);
-            --gradient-start: var(--gradient-start-hot);
-            --gradient-end: var(--gradient-end-hot);
-            --accent-color: var(--accent-color-hot);
-            --accent-glow: var(--accent-glow-hot);
-            --btn-bg: var(--btn-bg-hot);
-            --btn-bg-hover: var(--btn-bg-hover-hot);
+            /* Initial theme (to prevent flash) */
+            --bg-color: var(--bg-color-cold);
+            --gradient-start: var(--gradient-start-cold);
+            --gradient-end: var(--gradient-end-cold);
+            --accent-color: var(--accent-color-cold);
+            --accent-glow: var(--accent-glow-cold);
+            --btn-bg: var(--btn-bg-cold);
+            --btn-bg-hover: var(--btn-bg-hover-cold);
         }
 
         body {
             font-family: 'SF Pro Display', 'Arial', sans-serif;
             margin: 0;
-            padding: 20px;
             background-color: var(--bg-color);
             color: white;
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: none;
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+        }
+
+
+        body.theme-ready {
             transition: background-color 2s;
         }
 
@@ -60,6 +68,10 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
+            transition: none;
+        }
+
+        body.theme-ready .container {
             transition: background 2s;
         }
 
@@ -76,6 +88,10 @@
             margin: 0;
             line-height: 1;
             text-shadow: 0 0 20px var(--accent-glow);
+            transition: none;
+        }
+
+        body.theme-ready .current-temp {
             transition: color 2s, text-shadow 2s;
         }
 
@@ -128,7 +144,7 @@
 
         .status {
             position: absolute;
-            bottom: 40px;
+            bottom: 30px;
             text-align: center;
             color: #888;
             font-size: 0.9em;
@@ -204,6 +220,23 @@
             color: var(--accent-color);
             text-shadow: 0 0 10px var(--accent-glow);
         } */
+
+        .pregnancy-warning {
+            position: absolute;
+            bottom: 55px;
+            text-align: center;
+            color: #FF6B4A;
+            font-size: 0.9em;
+            width: 100%;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+
+        .pregnancy-warning.visible {
+            opacity: 1;
+            visibility: visible;
+        }
     </style>
 </head>
 <body>
@@ -219,6 +252,9 @@
         <div class="controls">
             <button class="temp-btn" id="decrease">-</button>
             <button class="temp-btn" id="increase">+</button>
+        </div>
+        <div class="pregnancy-warning">
+            ⚠️ Not safe for pregnant women
         </div>
         <div class="status">
             <span class="status-indicator connecting" id="connectionStatus"></span>
@@ -243,12 +279,16 @@
         initialRequest: CONFIG.topicPrefix + 'initial_request'
     };
 
+    const MIN_TEMP = 35;  // coldest
+    const MAX_TEMP = 40;  // hottest
+
     let currentTemp = "--";
     let targetTemp = "--";
     let errorMessageTimeout = null;
     let lastTempUpdate = Date.now();
     let tempUpdateChecker = null;
     let targetTempTimeout = null;
+    let targetTempTimeoutCreatedAt = null;
     let lastRecievedTargetTemp = "--";
     let isConnected = false
 
@@ -305,33 +345,85 @@
         showError('Error from MQTT broker: ' + error.message);
     });
 
+    function interpolateColor(color1, color2, factor) {
+        // Create a temporary element to compute CSS variables
+        const temp = document.createElement('div');
+        document.body.appendChild(temp);
+        
+        // Handle CSS variables
+        if (color1.startsWith('var(')) {
+            temp.style.color = color1;
+            color1 = getComputedStyle(temp).color;
+            temp.style.color = color2;
+            color2 = getComputedStyle(temp).color;
+        }
+        
+        document.body.removeChild(temp);
+
+        // Parse RGB/RGBA values
+        const rgb1 = color1.match(/\d+(\.\d+)?/g).map(Number);
+        const rgb2 = color2.match(/\d+(\.\d+)?/g).map(Number);
+
+        // Interpolate RGB values
+        const r = Math.round(rgb1[0] + (rgb2[0] - rgb1[0]) * factor);
+        const g = Math.round(rgb1[1] + (rgb2[1] - rgb1[1]) * factor);
+        const b = Math.round(rgb1[2] + (rgb2[2] - rgb1[2]) * factor);
+        
+        // Handle alpha if present
+        if (rgb1.length === 4 && rgb2.length === 4) {
+            const a = rgb1[3] + (rgb2[3] - rgb1[3]) * factor;
+            return `rgba(${r}, ${g}, ${b}, ${a})`;
+        }
+        
+        return `rgb(${r}, ${g}, ${b})`;
+    }
+
     function updateTheme(temperature) {
-        const COLD_THRESHOLD = 37; // Switch to cold theme below this temperature
+        if (temperature === "--") return;
+        
+        // Calculate interpolation factor (0 = cold, 1 = hot)
+        const factor = Math.max(0, Math.min(1, (parseFloat(temperature) - MIN_TEMP) / (MAX_TEMP - MIN_TEMP)));
+        
         const root = document.documentElement;
         
-        if (temperature === "--" || temperature >= COLD_THRESHOLD) {
-            root.style.setProperty('--bg-color', 'var(--bg-color-hot)');
-            root.style.setProperty('--gradient-start', 'var(--gradient-start-hot)');
-            root.style.setProperty('--gradient-end', 'var(--gradient-end-hot)');
-            root.style.setProperty('--accent-color', 'var(--accent-color-hot)');
-            root.style.setProperty('--accent-glow', 'var(--accent-glow-hot)');
-            root.style.setProperty('--btn-bg', 'var(--btn-bg-hot)');
-            root.style.setProperty('--btn-bg-hover', 'var(--btn-bg-hover-hot)');
-        } else {
-            root.style.setProperty('--bg-color', 'var(--bg-color-cold)');
-            root.style.setProperty('--gradient-start', 'var(--gradient-start-cold)');
-            root.style.setProperty('--gradient-end', 'var(--gradient-end-cold)');
-            root.style.setProperty('--accent-color', 'var(--accent-color-cold)');
-            root.style.setProperty('--accent-glow', 'var(--accent-glow-cold)');
-            root.style.setProperty('--btn-bg', 'var(--btn-bg-cold)');
-            root.style.setProperty('--btn-bg-hover', 'var(--btn-bg-hover-cold)');
-        }
+        // Update each CSS variable with interpolated colors
+        root.style.setProperty('--bg-color', 
+            interpolateColor('var(--bg-color-cold)', 'var(--bg-color-hot)', factor));
+        root.style.setProperty('--gradient-start', 
+            interpolateColor('var(--gradient-start-cold)', 'var(--gradient-start-hot)', factor));
+        root.style.setProperty('--gradient-end', 
+            interpolateColor('var(--gradient-end-cold)', 'var(--gradient-end-hot)', factor));
+        root.style.setProperty('--accent-color', 
+            interpolateColor('var(--accent-color-cold)', 'var(--accent-color-hot)', factor));
+        root.style.setProperty('--accent-glow', 
+            interpolateColor('var(--accent-glow-cold)', 'var(--accent-glow-hot)', factor));
+        root.style.setProperty('--btn-bg', 
+            interpolateColor('var(--btn-bg-cold)', 'var(--btn-bg-hot)', factor));
+        root.style.setProperty('--btn-bg-hover', 
+            interpolateColor('var(--btn-bg-hover-cold)', 'var(--btn-bg-hover-hot)', factor));
     }
 
     function updateUI() {
         document.querySelector('.current-temp').textContent = `${currentTemp}°C`;
-        document.querySelector('.target-temp').textContent = `Target: ${targetTemp}°C`;
+        if (targetTemp !== "--") {
+            document.querySelector('.target-temp').textContent = `Target: ${targetTemp.toFixed(1)}°C`;
+        } else {
+            document.querySelector('.target-temp').textContent = `Target: ${targetTemp}°C`;
+        }
         updateTheme(currentTemp);
+        
+        // Show/hide pregnancy warning
+        const warningElement = document.querySelector('.pregnancy-warning');
+        if (currentTemp !== "--" && parseFloat(currentTemp) > 38.9) {
+            warningElement.classList.add('visible');
+        } else {
+            warningElement.classList.remove('visible');
+        }
+        
+        // Add theme-ready class if we have a temperature
+        if (currentTemp !== "--" && !document.body.classList.contains('theme-ready')) {
+            document.body.classList.add('theme-ready');
+        }
     }
 
     function checkConnectionStatus() {
@@ -403,10 +495,15 @@
             switch(topic) {
                 case TOPICS.temperature:
                     setConnected();
-                    currentTemp = Math.round(decryptedMessage.value * 10) / 10;
+                    currentTemp = decryptedMessage.value.toFixed(1);
                     lastRecievedTargetTemp = decryptedMessage.target;
                     if (targetTemp === "--") {
                         targetTemp = decryptedMessage.target;
+                    }
+                    if (targetTemp != decryptedMessage.target) {
+                        if (!(targetTempTimeoutCreatedAt && Date.now() - targetTempTimeoutCreatedAt < 2000)) {
+                            targetTemp = decryptedMessage.target;
+                        }
                     }
                     lastTempUpdate = Date.now();
                     document.getElementById('connectionStatus').classList.replace('disconnected', 'connected');
@@ -451,6 +548,7 @@
         client.publish(TOPICS.targetTemp, message);
         updateUI();
 
+        targetTempTimeoutCreatedAt = Date.now();
         targetTempTimeout = setTimeout(() => {
             document.getElementById('connectionStatus').classList.replace('connected', 'disconnected');
             document.getElementById('statusText').textContent = 'ESP Unresponsive';
@@ -461,11 +559,11 @@
     }
 
     document.getElementById('increase').onclick = () => {
-        updateTargetTemperature(Math.min(targetTemp + 0.5, 40));
+        updateTargetTemperature(Math.min(targetTemp + 0.5, MAX_TEMP));
     };
 
     document.getElementById('decrease').onclick = () => {
-        updateTargetTemperature(Math.max(targetTemp - 0.5, 35));
+        updateTargetTemperature(Math.max(targetTemp - 0.5, MIN_TEMP));
     };
 
     // Add sunset functionality
