@@ -11,6 +11,15 @@
     <meta name="theme-color" content="#1a1a1a">
     <title>HotTubHub</title>
     <style>
+        html, body {
+            overscroll-behavior-y: none;
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            -webkit-overflow-scrolling: none;
+        }
+
         :root {
             /* Hot Theme (40°C) */
             --bg-color-hot: #1a1616;
@@ -271,7 +280,10 @@
 <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 <script>
-    // Add this at the start of your script section
+    document.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+    }, { passive: false });
+    
     if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
             navigator.serviceWorker.register('service-worker.js')
