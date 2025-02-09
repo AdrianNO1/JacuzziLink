@@ -138,6 +138,7 @@
             backdrop-filter: blur(5px);
             -webkit-backdrop-filter: blur(5px);
             margin-top: 70px;
+            -webkit-tap-highlight-color: transparent;
         }
 
         #increase {
@@ -252,9 +253,91 @@
             opacity: 1;
             visibility: visible;
         }
+
+        .settings-button {
+            position: absolute;
+            top: calc((50% - 180px - 80px)/2); /* (50% - half of container height - settingsbutton height) / 2*/
+            left: 50%;
+            transform: translateX(-50%);
+            width: 200px;
+            height: 80px;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            z-index: 100;
+        }
+
+        .settings-menu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--gradient-start);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            z-index: 1000;
+            display: none;
+            width: 80%;
+            max-width: 300px;
+        }
+
+        .settings-menu.visible {
+            display: block;
+        }
+
+        .settings-menu input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: none;
+            border-radius: 5px;
+            background: var(--gradient-end);
+            color: white;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        .settings-menu button {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: none;
+            border-radius: 5px;
+            background: var(--btn-bg);
+            color: var(--accent-color);
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .settings-menu button:hover {
+            background: var(--btn-bg-hover);
+        }
+
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 999;
+            display: none;
+        }
+
+        .overlay.visible {
+            display: block;
+        }
     </style>
 </head>
 <body>
+    <div class="overlay" id="overlay"></div>
+    <button class="settings-button" id="settingsButton"></button>
+    <div class="settings-menu" id="settingsMenu">
+        <input type="text" id="secretKeyInput" placeholder="Enter Secret Key">
+        <button id="saveSettings">Save</button>
+        <button id="cancelSettings">Cancel</button>
+    </div>
     <div class="container">
         <div class="sunset-info">
             Sunset: <span id="sunsetTime">--:--</span>
@@ -297,9 +380,14 @@
     }
     const CONFIG = {
         deviceId: 'jcz_001',  // Unique device identifier
-        secretKey: 'your_secret_key_here',  // Secret key for encryption
+        secretKey: '',  // Secret key for encryption
         topicPrefix: 'secure_jacuzzi/jcz_001/'  // Unique topic prefix
     };
+
+    const storedKey = localStorage.getItem('jacuzziSecretKey');
+    if (storedKey) {
+        CONFIG.secretKey = storedKey;
+    }
 
     const TOPICS = {
         temperature: CONFIG.topicPrefix + 'temperature',
@@ -309,8 +397,13 @@
         initialRequest: CONFIG.topicPrefix + 'initial_request'
     };
 
-    const MIN_TEMP = 35;  // coldest
-    const MAX_TEMP = 40;  // hottest
+    const MIN_TEMP = 0;
+    const MAX_TEMP = 50;
+
+    const COLD_TEMP = 35;
+    const HOT_TEMP = 40;
+
+    const targetTempStep = 0.5;
 
     let currentTemp = "--";
     let targetTemp = "--";
@@ -321,6 +414,15 @@
     let targetTempTimeoutCreatedAt = null;
     let lastRecievedTargetTemp = "--";
     let isConnected = false
+    let prevButtonPresses = [];
+    let pregnancyWarningEnabled = false
+
+    const storedPWE = localStorage.getItem('pregnancyWarningEnabled');
+    if (storedPWE) {
+        pregnancyWarningEnabled = storedPWE === 'true';
+    } else {
+        localStorage.setItem('pregnancyWarningEnabled', pregnancyWarningEnabled);
+    }
 
     function encryptMessage(message) {
         const jsonString = JSON.stringify(message);
@@ -341,6 +443,9 @@
 
     function decryptMessage(encryptedData) {
         const parsedData = JSON.parse(encryptedData);
+        if (!parsedData.iv || !parsedData.ciphertext) {
+            throw new Error('Invalid message format');
+        }
         const key = CryptoJS.enc.Utf8.parse(CONFIG.secretKey.padEnd(32, '\0'));
         const iv = CryptoJS.enc.Base64.parse(parsedData.iv);
         
@@ -349,8 +454,11 @@
             mode: CryptoJS.mode.CBC,
             padding: CryptoJS.pad.Pkcs7
         });
-
-        return JSON.parse(decrypted.toString(CryptoJS.enc.Utf8));
+        try {
+            return JSON.parse(decrypted.toString(CryptoJS.enc.Utf8));
+        } catch (error) {
+            throw new Error('Failed to decrypt message');
+        }
     }
 
     const client = mqtt.connect('wss://test.mosquitto.org:8081', {
@@ -412,7 +520,7 @@
         if (temperature === "--") return;
         
         // Calculate interpolation factor (0 = cold, 1 = hot)
-        const factor = Math.max(0, Math.min(1, (parseFloat(temperature) - MIN_TEMP) / (MAX_TEMP - MIN_TEMP)));
+        const factor = Math.max(0, Math.min(1, (parseFloat(temperature) - COLD_TEMP) / (HOT_TEMP - COLD_TEMP)));
         
         const root = document.documentElement;
         
@@ -442,13 +550,15 @@
         }
         updateTheme(currentTemp);
         
-        // // Show/hide pregnancy warning
-        // const warningElement = document.querySelector('.pregnancy-warning');
-        // if (currentTemp !== "--" && parseFloat(currentTemp) > 38.9) {
-        //     warningElement.classList.add('visible');
-        // } else {
-        //     warningElement.classList.remove('visible');
-        // }
+        // Show/hide pregnancy warning
+        if (pregnancyWarningEnabled) {
+            const warningElement = document.querySelector('.pregnancy-warning');
+            if (currentTemp !== "--" && parseFloat(currentTemp) > 38.9) {
+                warningElement.classList.add('visible');
+            } else {
+                warningElement.classList.remove('visible');
+            }
+        }
         
         // Add theme-ready class if we have a temperature
         if (currentTemp !== "--" && !document.body.classList.contains('theme-ready')) {
@@ -545,6 +655,9 @@
                             clearTimeout(targetTempTimeout)
                         }
                         if (decryptedMessage.status === 'error') {
+                            if (targetTempTimeout) {
+                                clearTimeout(targetTempTimeout);
+                            }
                             showError(decryptedMessage.message || 'Failed to update target temperature');
                             targetTemp = lastRecievedTargetTemp;
                         }
@@ -560,8 +673,12 @@
     });
 
     function updateTargetTemperature(newTemp) {
+        if (!CONFIG.secretKey && currentTemp === "--") {
+            showError('Secret key not set');
+            return;
+        }
         if (targetTemp === "--") {
-            showError('Device not connected. Please wait for connection.');
+            showError('Device not connected.');
             return;
         }
 
@@ -588,12 +705,27 @@
         }, 2000);
     }
 
+    function addButtonPress(button) {
+        prevButtonPresses.push(button);
+        if (prevButtonPresses.length > 10) {
+            prevButtonPresses.shift();
+        }
+        const lastTen = prevButtonPresses.join('');
+        if (lastTen === "++-+--+---") {
+            pregnancyWarningEnabled = !pregnancyWarningEnabled;
+            localStorage.setItem('pregnancyWarningEnabled', pregnancyWarningEnabled);
+            updateUI();
+        }
+    }
+
     document.getElementById('increase').onclick = () => {
-        updateTargetTemperature(Math.min(targetTemp + 0.5, MAX_TEMP));
+        addButtonPress("+");
+        updateTargetTemperature(Math.min(targetTemp + targetTempStep, MAX_TEMP));
     };
 
     document.getElementById('decrease').onclick = () => {
-        updateTargetTemperature(Math.max(targetTemp - 0.5, MIN_TEMP));
+        addButtonPress("-");
+        updateTargetTemperature(Math.max(targetTemp - targetTempStep, MIN_TEMP));
     };
 
     // Add sunset functionality
@@ -617,6 +749,35 @@
     // Fetch sunset time initially and update every hour
     fetchSunsetTime();
     setInterval(fetchSunsetTime, 3600000);
+
+    // Add settings menu functionality
+    const settingsButton = document.getElementById('settingsButton');
+    const settingsMenu = document.getElementById('settingsMenu');
+    const overlay = document.getElementById('overlay');
+    const secretKeyInput = document.getElementById('secretKeyInput');
+    const saveSettings = document.getElementById('saveSettings');
+    const cancelSettings = document.getElementById('cancelSettings');
+
+    settingsButton.addEventListener('click', () => {
+        secretKeyInput.value = CONFIG.secretKey;
+        settingsMenu.classList.add('visible');
+        overlay.classList.add('visible');
+    });
+
+    function closeSettings() {
+        settingsMenu.classList.remove('visible');
+        overlay.classList.remove('visible');
+    }
+
+    saveSettings.addEventListener('click', () => {
+        const newKey = secretKeyInput.value;
+        CONFIG.secretKey = newKey;
+        localStorage.setItem('jacuzziSecretKey', newKey);
+        closeSettings();
+    });
+
+    cancelSettings.addEventListener('click', closeSettings);
+    overlay.addEventListener('click', closeSettings);
 
     updateUI();
 </script>
