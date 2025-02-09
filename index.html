@@ -552,13 +552,11 @@
         updateTheme(currentTemp);
         
         // Show/hide pregnancy warning
-        if (pregnancyWarningEnabled) {
-            const warningElement = document.querySelector('.pregnancy-warning');
-            if (currentTemp !== "--" && parseFloat(currentTemp) > 38.9) {
-                warningElement.classList.add('visible');
-            } else {
-                warningElement.classList.remove('visible');
-            }
+        const warningElement = document.querySelector('.pregnancy-warning');
+        if (currentTemp !== "--" && parseFloat(currentTemp) > 38.9 && pregnancyWarningEnabled) {
+            warningElement.classList.add('visible');
+        } else {
+            warningElement.classList.remove('visible');
         }
         
         // Add theme-ready class if we have a temperature
@@ -713,6 +711,7 @@
         }
         const lastTen = prevButtonPresses.join('');
         if (lastTen === "++-+--+---") {
+            console.log("setting to", !pregnancyWarningEnabled);
             pregnancyWarningEnabled = !pregnancyWarningEnabled;
             localStorage.setItem('pregnancyWarningEnabled', pregnancyWarningEnabled);
             updateUI();
